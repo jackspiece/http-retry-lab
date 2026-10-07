@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A reproducible Python experiment showing duplicate writes after a lost HTTP response, keyed recovery, and an explicit review state.">
+<title>Where duplicate writes begin | jackspiece</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f3ed;color:#172d32;font:17px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#075d78;text-underline-offset:4px}a:hover{color:#003b4d}.wrap{max-width:1120px;margin:auto;padding:30px 28px 60px}
+nav{display:flex;justify-content:space-between;gap:20px;padding-bottom:24px;border-bottom:1px solid #cad3cc;font-size:14px}
+nav a{font-weight:650}.eyebrow{font:700 12px/1.4 ui-monospace,monospace;letter-spacing:.14em;color:#526963;text-transform:uppercase;margin-top:52px}
+h1{font-size:clamp(36px,5.5vw,64px);line-height:1.06;letter-spacing:-.04em;max-width:800px;margin:16px 0 22px}
+.intro{font-size:20px;max-width:760px;margin-bottom:35px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{padding:25px;border:1px solid #cad3cc;border-top:5px solid #78998e;border-radius:5px;background:#fffefa}
+.card h2{font-size:16px;margin:0;line-height:1.4;min-height:44px}.number{font-size:58px;font-weight:720;line-height:1.2;margin:18px 0}
+.number span{font-size:19px;font-weight:500;white-space:nowrap}.card p{font-size:15px;margin:10px 0 0}
+.red{border-top-color:#b15339}.green{border-top-color:#32806b}.amber{border-top-color:#b38b29}
+.note{font-size:14px;color:#50665f;margin:20px 0 42px;max-width:830px}section{margin-top:38px}h2{font-size:25px;letter-spacing:-.02em;margin:0 0 16px}
+.table-wrap{overflow:auto;border:1px solid #cad3cc;border-radius:5px}table{border-collapse:collapse;width:100%;background:#fffefa;font-size:15px}
+th,td{padding:15px 18px;border-bottom:1px solid #dfe5df;text-align:left}thead{background:#e6ece5}tbody th{font-weight:550;min-width:210px}tr:last-child th,tr:last-child td{border-bottom:0}
+.explain{display:grid;grid-template-columns:1fr 1fr;gap:35px;margin:40px 0}.explain p{margin:0;font-size:16px}
+details{background:#fffefa;border:1px solid #cad3cc;border-radius:5px;margin:10px 0}summary{cursor:pointer;padding:16px 18px;font-size:15px;font-weight:650}
+summary:focus-visible,a:focus-visible{outline:3px solid #227d97;outline-offset:3px}pre{margin:0;padding:18px;overflow:auto;background:#edf1eb;font:13px/1.6 ui-monospace,monospace}
+.run{padding:20px 24px;background:#172d32;color:#e6eee9;border-radius:5px;overflow:auto;font:14px/1.9 ui-monospace,monospace;white-space:pre}
+footer{margin-top:45px;border-top:1px solid #cad3cc;padding-top:20px;font-size:13px;color:#50665f}.links{display:flex;flex-wrap:wrap;gap:18px;margin-top:22px}
+@media(max-width:740px){.wrap{padding:22px 18px 40px}.eyebrow{margin-top:32px}.intro{font-size:18px}.cards,.explain{grid-template-columns:1fr}.card h2{min-height:0}.number{margin:12px 0}.card{padding:21px}.explain{gap:24px}table{table-layout:fixed;font-size:12px;line-height:1.45}th,td{padding:11px 7px;overflow-wrap:anywhere}thead th:first-child{width:37%}tbody th{min-width:0}nav{font-size:13px}}
+</style></head><body><main class="wrap">
+<nav><span>jackspiece / small systems, checked</span><a href="https://github.com/jackspiece/http-retry-lab">Source &amp; tests</a></nav>
+<p class="eyebrow">HTTP · failure handling · Python</p>
+<h1>Where duplicate writes begin.</h1>
+<p class="intro">A server saves the ticket. The connection closes before its reply arrives. This local experiment measures what happens next under three different retry policies.</p>
+<div class="cards"><article class="card red"><h2>Blind retry</h2><div class="number">2<span> tickets</span></div><p>The first write succeeded. Repeating the POST created a second ticket.</p></article><article class="card green"><h2>Same key, provider support</h2><div class="number">1<span> ticket</span></div><p>The second request recovered the receipt for the original ticket.</p></article><article class="card amber"><h2>Stop for review</h2><div class="number">1<span> ticket</span></div><p>The client has no receipt. It stops instead of guessing whether another write is safe.</p></article></div>
+<p class="note">These counts come from the local server's records. In the review case, the client cannot see that a ticket exists. A missing response does not establish whether the write happened.</p>
+<section><h2>The observed results</h2><div class="table-wrap"><table>
+<thead><tr><th>Scenario</th><th>Requests</th><th>Tickets saved</th><th>Client state</th></tr></thead><tbody><tr><th scope="row">Blind retry</th><td>2</td><td>2</td><td>complete</td></tr><tr><th scope="row">Same key, provider support</th><td>2</td><td>1</td><td>complete</td></tr><tr><th scope="row">Stop for review</th><td>1</td><td>1</td><td>review required</td></tr><tr><th scope="row">Provider ignores the key</th><td>2</td><td>2</td><td>complete</td></tr><tr><th scope="row">Validation rejection</th><td>1</td><td>0</td><td>rejected</td></tr></tbody>
+</table></div></section>
+<div class="explain"><section><h2>The key is a contract.</h2><p>Reusing an operation key works here because the server remembers the original request and returns its receipt. The fourth case sends the same header to a server that ignores it. Two tickets are still created.</p></section>
+<section><h2>Review is a useful outcome.</h2><p>When the client cannot establish that a retry is safe, it records an uncertain result. A real workflow can reconcile that operation before deciding to send another write.</p></section></div>
+<section><h2>Inspect the request traces</h2><details><summary>Blind retry</summary><pre>{
+  &quot;client&quot;: {
+    &quot;state&quot;: &quot;complete&quot;,
+    &quot;attempts&quot;: 2,
+    &quot;ticket_id&quot;: &quot;ticket-2&quot;,
+    &quot;events&quot;: [
+      {
+        &quot;attempt&quot;: 1,
+        &quot;event&quot;: &quot;outcome_uncertain&quot;,
+        &quot;error_type&quot;: &quot;RemoteDisconnected&quot;
+      },
+      {
+        &quot;attempt&quot;: 2,
+        &quot;event&quot;: &quot;receipt_received&quot;,
+        &quot;http_status&quot;: 201
+      }
+    ]
+  },
+  &quot;server&quot;: {
+    &quot;records&quot;: [
+      {
+        &quot;ticket_id&quot;: &quot;ticket-1&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      },
+      {
+        &quot;ticket_id&quot;: &quot;ticket-2&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      }
+    ],
+    &quot;requests&quot;: [
+      {
+        &quot;request&quot;: 1,
+        &quot;key&quot;: null,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_connection_closed&quot;
+      },
+      {
+        &quot;request&quot;: 2,
+        &quot;key&quot;: null,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_receipt_sent&quot;
+      }
+    ]
+  }
+}</pre></details><details><summary>Same key, provider support</summary><pre>{
+  &quot;client&quot;: {
+    &quot;state&quot;: &quot;complete&quot;,
+    &quot;attempts&quot;: 2,
+    &quot;ticket_id&quot;: &quot;ticket-1&quot;,
+    &quot;events&quot;: [
+      {
+        &quot;attempt&quot;: 1,
+        &quot;event&quot;: &quot;outcome_uncertain&quot;,
+        &quot;error_type&quot;: &quot;RemoteDisconnected&quot;
+      },
+      {
+        &quot;attempt&quot;: 2,
+        &quot;event&quot;: &quot;receipt_received&quot;,
+        &quot;http_status&quot;: 200
+      }
+    ]
+  },
+  &quot;server&quot;: {
+    &quot;records&quot;: [
+      {
+        &quot;ticket_id&quot;: &quot;ticket-1&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      }
+    ],
+    &quot;requests&quot;: [
+      {
+        &quot;request&quot;: 1,
+        &quot;key&quot;: &quot;same-operation&quot;,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_connection_closed&quot;
+      },
+      {
+        &quot;request&quot;: 2,
+        &quot;key&quot;: &quot;same-operation&quot;,
+        &quot;write&quot;: false,
+        &quot;cache_hit&quot;: true,
+        &quot;result&quot;: &quot;cached_receipt&quot;
+      }
+    ]
+  }
+}</pre></details><details><summary>Stop for review</summary><pre>{
+  &quot;client&quot;: {
+    &quot;state&quot;: &quot;review_required&quot;,
+    &quot;attempts&quot;: 1,
+    &quot;ticket_id&quot;: null,
+    &quot;events&quot;: [
+      {
+        &quot;attempt&quot;: 1,
+        &quot;event&quot;: &quot;outcome_uncertain&quot;,
+        &quot;error_type&quot;: &quot;RemoteDisconnected&quot;
+      }
+    ]
+  },
+  &quot;server&quot;: {
+    &quot;records&quot;: [
+      {
+        &quot;ticket_id&quot;: &quot;ticket-1&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      }
+    ],
+    &quot;requests&quot;: [
+      {
+        &quot;request&quot;: 1,
+        &quot;key&quot;: null,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_connection_closed&quot;
+      }
+    ]
+  }
+}</pre></details><details><summary>Provider ignores the key</summary><pre>{
+  &quot;client&quot;: {
+    &quot;state&quot;: &quot;complete&quot;,
+    &quot;attempts&quot;: 2,
+    &quot;ticket_id&quot;: &quot;ticket-2&quot;,
+    &quot;events&quot;: [
+      {
+        &quot;attempt&quot;: 1,
+        &quot;event&quot;: &quot;outcome_uncertain&quot;,
+        &quot;error_type&quot;: &quot;RemoteDisconnected&quot;
+      },
+      {
+        &quot;attempt&quot;: 2,
+        &quot;event&quot;: &quot;receipt_received&quot;,
+        &quot;http_status&quot;: 201
+      }
+    ]
+  },
+  &quot;server&quot;: {
+    &quot;records&quot;: [
+      {
+        &quot;ticket_id&quot;: &quot;ticket-1&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      },
+      {
+        &quot;ticket_id&quot;: &quot;ticket-2&quot;,
+        &quot;payload&quot;: {
+          &quot;request_id&quot;: &quot;example-001&quot;,
+          &quot;subject&quot;: &quot;Move the workshop booking&quot;
+        }
+      }
+    ],
+    &quot;requests&quot;: [
+      {
+        &quot;request&quot;: 1,
+        &quot;key&quot;: &quot;same-operation&quot;,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_connection_closed&quot;
+      },
+      {
+        &quot;request&quot;: 2,
+        &quot;key&quot;: &quot;same-operation&quot;,
+        &quot;write&quot;: true,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;written_then_receipt_sent&quot;
+      }
+    ]
+  }
+}</pre></details><details><summary>Validation rejection</summary><pre>{
+  &quot;client&quot;: {
+    &quot;state&quot;: &quot;rejected&quot;,
+    &quot;attempts&quot;: 1,
+    &quot;ticket_id&quot;: null,
+    &quot;events&quot;: [
+      {
+        &quot;attempt&quot;: 1,
+        &quot;event&quot;: &quot;rejected&quot;,
+        &quot;http_status&quot;: 422
+      }
+    ]
+  },
+  &quot;server&quot;: {
+    &quot;records&quot;: [],
+    &quot;requests&quot;: [
+      {
+        &quot;request&quot;: 1,
+        &quot;key&quot;: &quot;same-operation&quot;,
+        &quot;write&quot;: false,
+        &quot;cache_hit&quot;: false,
+        &quot;result&quot;: &quot;validation_rejected&quot;
+      }
+    ]
+  }
+}</pre></details></section>
+<section><h2>Run it yourself</h2><div class="run">python -m unittest -v
+python run_demo.py</div><p class="note">Python's standard library. Real HTTP on 127.0.0.1. Fictional tickets. The fixture's records and key cache live in memory for each case; this experiment measures response loss, not recovery from a database or machine crash.</p></section>
+<div class="links"><a href="run.json" download>Download the measured run</a><a href="https://github.com/jackspiece/http-retry-lab/blob/main/README.md">Read the assumptions</a><a href="https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2">HTTP retry semantics</a></div>
+<footer>Recorded 2026-10-07T02:50:52.544441+00:00 · Python 3.12.10 · Windows. Source hashes are included in the run file.</footer>
+</main></body></html>

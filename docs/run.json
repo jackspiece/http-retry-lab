@@ -1,0 +1,251 @@
+{
+  "generated_at": "2026-10-07T02:50:52.544441+00:00",
+  "python": "3.12.10",
+  "os": "Windows",
+  "transport": "real loopback HTTP; TCP response deliberately closed after write",
+  "source_sha256": {
+    "retry_client.py": "12e51e3e42b91d1d8a2b8b8c6fff0ba6e3c32e9c086b40c2fbad9e1639ba525a",
+    "local_service.py": "25c5bbf94f55dae611d5188045b9e617ecec382c9572861740859ecedf1d32a0",
+    "test_retry_lab.py": "f51dd11beeb61eb901cf9869f61750c79440b3c70a73a7b031a0733d46ff3ace",
+    "run_demo.py": "7b4d02ba3142ae2f6cd357cef474cec72c54861e1fe7328a8cc43c7740670a6d"
+  },
+  "cases": [
+    {
+      "id": "blind",
+      "title": "Blind retry",
+      "explanation": "The first write succeeded. Repeating the POST created a second ticket.",
+      "provider_supports_keys": false,
+      "client_declares_support": false,
+      "outcome": {
+        "state": "complete",
+        "attempts": 2,
+        "ticket_id": "ticket-2",
+        "events": [
+          {
+            "attempt": 1,
+            "event": "outcome_uncertain",
+            "error_type": "RemoteDisconnected"
+          },
+          {
+            "attempt": 2,
+            "event": "receipt_received",
+            "http_status": 201
+          }
+        ]
+      },
+      "observed": {
+        "records": [
+          {
+            "ticket_id": "ticket-1",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          },
+          {
+            "ticket_id": "ticket-2",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "request": 1,
+            "key": null,
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_connection_closed"
+          },
+          {
+            "request": 2,
+            "key": null,
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_receipt_sent"
+          }
+        ]
+      }
+    },
+    {
+      "id": "key",
+      "title": "Same key, provider support",
+      "explanation": "The second request recovered the receipt for the original ticket.",
+      "provider_supports_keys": true,
+      "client_declares_support": true,
+      "outcome": {
+        "state": "complete",
+        "attempts": 2,
+        "ticket_id": "ticket-1",
+        "events": [
+          {
+            "attempt": 1,
+            "event": "outcome_uncertain",
+            "error_type": "RemoteDisconnected"
+          },
+          {
+            "attempt": 2,
+            "event": "receipt_received",
+            "http_status": 200
+          }
+        ]
+      },
+      "observed": {
+        "records": [
+          {
+            "ticket_id": "ticket-1",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "request": 1,
+            "key": "same-operation",
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_connection_closed"
+          },
+          {
+            "request": 2,
+            "key": "same-operation",
+            "write": false,
+            "cache_hit": true,
+            "result": "cached_receipt"
+          }
+        ]
+      }
+    },
+    {
+      "id": "review",
+      "title": "Stop for review",
+      "explanation": "The client has no receipt. It stops instead of guessing whether another write is safe.",
+      "provider_supports_keys": false,
+      "client_declares_support": false,
+      "outcome": {
+        "state": "review_required",
+        "attempts": 1,
+        "ticket_id": null,
+        "events": [
+          {
+            "attempt": 1,
+            "event": "outcome_uncertain",
+            "error_type": "RemoteDisconnected"
+          }
+        ]
+      },
+      "observed": {
+        "records": [
+          {
+            "ticket_id": "ticket-1",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "request": 1,
+            "key": null,
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_connection_closed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ignored",
+      "title": "Provider ignores the key",
+      "explanation": "Sending the header did not create an idempotency contract. The client assumption was wrong.",
+      "provider_supports_keys": false,
+      "client_declares_support": true,
+      "outcome": {
+        "state": "complete",
+        "attempts": 2,
+        "ticket_id": "ticket-2",
+        "events": [
+          {
+            "attempt": 1,
+            "event": "outcome_uncertain",
+            "error_type": "RemoteDisconnected"
+          },
+          {
+            "attempt": 2,
+            "event": "receipt_received",
+            "http_status": 201
+          }
+        ]
+      },
+      "observed": {
+        "records": [
+          {
+            "ticket_id": "ticket-1",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          },
+          {
+            "ticket_id": "ticket-2",
+            "payload": {
+              "request_id": "example-001",
+              "subject": "Move the workshop booking"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "request": 1,
+            "key": "same-operation",
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_connection_closed"
+          },
+          {
+            "request": 2,
+            "key": "same-operation",
+            "write": true,
+            "cache_hit": false,
+            "result": "written_then_receipt_sent"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rejected",
+      "title": "Validation rejection",
+      "explanation": "The fixture rejected the request before writing. The client did not retry.",
+      "provider_supports_keys": true,
+      "client_declares_support": true,
+      "outcome": {
+        "state": "rejected",
+        "attempts": 1,
+        "ticket_id": null,
+        "events": [
+          {
+            "attempt": 1,
+            "event": "rejected",
+            "http_status": 422
+          }
+        ]
+      },
+      "observed": {
+        "records": [],
+        "requests": [
+          {
+            "request": 1,
+            "key": "same-operation",
+            "write": false,
+            "cache_hit": false,
+            "result": "validation_rejected"
+          }
+        ]
+      }
+    }
+  ]
+}
