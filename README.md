@@ -8,7 +8,7 @@ This Python experiment closes a real loopback TCP connection **after the write**
 
 ## Run
 
-Use Python 3.12 or 3.13. There are no third-party packages or external service accounts.
+Use Python 3.12 or newer (CI tests 3.12, 3.13 and 3.14). There are no third-party packages or external service accounts.
 
 ```sh
 python -m unittest -v
