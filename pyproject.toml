@@ -1,0 +1,61 @@
+[project]
+name = "http-retry-lab"
+version = "0.1.0"
+description = "Reproducible experiment: lost HTTP responses, duplicate writes and keyed recovery"
+requires-python = ">=3.12"
+license = "MIT"
+
+# Exceptions for the hashed sources
+#
+# docs/run.json records the SHA-256 of all four .py files, so editing any of
+# them means regenerating the published report. They predate this tooling, so
+# the ruff ignores and mypy overrides below switch off exactly the rules each
+# file breaks today, and nothing else. Every current module has an exception,
+# which means mypy's strict mode applies in full only to new modules; the
+# remaining strict checks still run on the four existing files. Remove a file's
+# exception the next time it changes, and regenerate docs/ in the same commit.
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# Sort plain and from-imports together by module name, as the sources already do.
+force-sort-within-sections = true
+
+[tool.ruff.lint.per-file-ignores]
+"retry_client.py" = ["E501"]
+"run_demo.py" = ["B905", "E501", "UP017"]
+"test_retry_lab.py" = ["E501"]
+
+[tool.mypy]
+files = ["*.py"]
+python_version = "3.12"
+strict = true
+
+[[tool.mypy.overrides]]
+module = "local_service"
+disable_error_code = ["no-untyped-def", "type-arg", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "retry_client"
+disable_error_code = ["type-arg"]
+
+[[tool.mypy.overrides]]
+module = "run_demo"
+disable_error_code = ["no-untyped-call", "no-untyped-def"]
+
+[[tool.mypy.overrides]]
+module = "test_retry_lab"
+disable_error_code = ["no-untyped-def"]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+
+[tool.coverage.report]
+exclude_also = ["if __name__ == .__main__.:"]
+fail_under = 94
+show_missing = true
