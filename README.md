@@ -8,7 +8,7 @@ This Python experiment closes a real loopback TCP connection **after the write**
 
 ## Run
 
-Use Python 3.12 or newer (CI tests 3.12, 3.13 and 3.14). There are no third-party packages or external service accounts.
+Use Python 3.12 or newer (CI tests 3.12, 3.13 and 3.14). The experiment needs no third-party packages or external service accounts.
 
 ```sh
 python -m unittest -v
@@ -42,5 +42,20 @@ The tests use real HTTP requests. They check the server's stored records separat
 `docs/run.json` includes client events, server observations, runtime details and SHA-256 hashes of the source files used for that run.
 
 The HTTP-level distinction is described in [RFC 9110, section 9.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2): an automatic retry of a non-idempotent method requires knowledge about the operation's semantics or evidence that the first request was not applied. This experiment makes the first condition explicit and shows the cost of assuming it incorrectly.
+
+## Checks
+
+CI also runs ruff, mypy and a branch-coverage floor. The tool versions are pinned in `requirements-dev.txt` and their settings live in `pyproject.toml`:
+
+```sh
+python -m pip install -r requirements-dev.txt
+python -m ruff check .
+python -m mypy
+python -m coverage run -m unittest
+python -m coverage run --append run_demo.py
+python -m coverage report
+```
+
+Like `python run_demo.py`, the second coverage command regenerates `docs/`.
 
 Built as an independent example by [jackspiece](https://github.com/jackspiece). The data is fictional.
